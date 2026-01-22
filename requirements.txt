@@ -1,0 +1,17 @@
+torch
+torchaudio
+torchvision
+numpy
+scipy
+librosa
+soundfile
+numba
+tqdm
+pandas
+scikit-learn
+boto3
+requests
+python-dotenv
+pyyaml
+
+javad @ git+https://github.com/mohrsalt/javad.git

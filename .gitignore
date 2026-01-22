@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+
+# Env / secrets
+.env
+
+# Data / artifacts
+data_temp/
+*.wav
+*.json
+
+# OS junk
+.DS_Store
