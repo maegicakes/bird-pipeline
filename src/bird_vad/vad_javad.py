@@ -57,7 +57,7 @@ def run_javad_vad(audio_path: str | Path, settings: JaVADSettings) -> List[Tuple
     audio_path = Path(audio_path)
 
     # ✅ Dependency import (clean, no vendoring)
-    from javad.extras.basic import get_speech_intervals
+    from javad.extras import get_speech_intervals
 
     raw = get_speech_intervals(
         audio=str(audio_path),
