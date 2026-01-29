@@ -14,4 +14,4 @@ requests
 python-dotenv
 pyyaml
 
-javad @ git+https://github.com/mohrsalt/javad.git
+# javad @ git+https://github.com/mohrsalt/javad.git
