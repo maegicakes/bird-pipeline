@@ -29,4 +29,6 @@ echo "[run.sh] Model: ${JAVAD_MODEL_NAME:-balanced}"
 echo "[run.sh] Checkpoint: ${JAVAD_CHECKPOINT}"
 
 # Run the pipeline
-exec python -m bird_vad.pipeline
+# exec python -m bird_vad.pipeline
+
+exec PYTHONPATH=src:../javad/src python -m bird_vad.pipeline
