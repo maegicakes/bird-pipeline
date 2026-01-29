@@ -65,7 +65,7 @@ raw = get_speech_intervals(
     checkpoint=settings.checkpoint_path,   # <-- THIS is the key
     model_name=settings.model_name,        # optional if supported
     device=settings.device,                # optional if supported
-)
+    )
 
     # from javad.extras import get_speech_intervals
 
