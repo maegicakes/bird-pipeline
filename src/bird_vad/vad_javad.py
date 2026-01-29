@@ -82,10 +82,10 @@ raw = get_speech_intervals(
     # intervals: List[Tuple[float, float]] = [(float(s), float(e)) for (s, e) in raw]
 
     # Post-process
-    max_gap_s = max(0.0, settings.min_silence_ms / 1000.0)
-    min_len_s = max(0.0, settings.min_speech_ms / 1000.0)
+max_gap_s = max(0.0, settings.min_silence_ms / 1000.0)
+min_len_s = max(0.0, settings.min_speech_ms / 1000.0)
 
-    intervals = _merge_close(intervals, max_gap_s=max_gap_s)
-    intervals = _drop_short(intervals, min_len_s=min_len_s)
+intervals = _merge_close(intervals, max_gap_s=max_gap_s)
+intervals = _drop_short(intervals, min_len_s=min_len_s)
 
-    return intervals
+return intervals
