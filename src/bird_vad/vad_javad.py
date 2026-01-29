@@ -59,14 +59,17 @@ def run_javad_vad(audio_path: str | Path, settings: JaVADSettings) -> List[Tuple
     # ✅ Dependency import (clean, no vendoring)
     from javad.extras import get_speech_intervals
 
-    raw = get_speech_intervals(
-        audio=str(audio_path),
-        checkpoint=settings.checkpoint_path,
-        model_name=settings.model_name,
-        device=settings.device,
-    )
+    raw = get_speech_intervals(str(audio_path))
+    intervals = [(float(s), float(e)) for (s, e) in raw]
 
-    intervals: List[Tuple[float, float]] = [(float(s), float(e)) for (s, e) in raw]
+    # raw = get_speech_intervals(
+    #     audio=str(audio_path),
+    #     checkpoint=settings.checkpoint_path,
+    #     model_name=settings.model_name,
+    #     device=settings.device,
+    # )
+
+    # intervals: List[Tuple[float, float]] = [(float(s), float(e)) for (s, e) in raw]
 
     # Post-process
     max_gap_s = max(0.0, settings.min_silence_ms / 1000.0)
