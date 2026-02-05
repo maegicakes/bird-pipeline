@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 import time
+import glob
 from datetime import datetime
 from pathlib import Path
 from typing import List, Tuple, Optional
@@ -117,6 +118,218 @@ def clip_segments_to_wavs(
 
 
 # ----------------------------
+# “Old pipeline” style cleanup
+# ----------------------------
+
+def _delete_sidecars_for_source_wav(source_wav: Path) -> None:
+    """
+    Delete any files that share the same base name as source_wav.
+    Similar idea to old: glob(file.replace(".wav","*")) then remove.
+    """
+    pattern = str(source_wav).replace(".wav", "*")
+    for p in glob.glob(pattern):
+        try:
+            Path(p).unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+# ----------------------------
+# Core processing (shared)
+# ----------------------------
+
+def process_one_audio(
+    *,
+    cfg,
+    jcfg: JaVADSettings,
+    s3_settings,
+    chunk_id: str,
+    source_wav: Path,
+    clips_dir: Path,
+    vad_sr: int,
+    vad_ch: int,
+    upload_audio_clips: bool,
+    max_clip_s: Optional[float],
+    min_clip_s: float,
+    upload_enabled: bool,
+    delete_source_wav: bool,
+    delete_vad_wav: bool,
+    delete_clips: bool,
+) -> None:
+    """
+    Process exactly one source wav:
+      convert -> JaVAD -> clips -> write JSON -> upload -> cleanup
+    Works for BOTH record mode and watch mode.
+    """
+    vad_wav: Optional[Path] = None
+    out_json: Optional[Path] = None
+    clip_paths: List[Path] = []
+
+    # 1) convert to JaVAD-friendly audio
+    vad_wav = cfg.recorder.audio_dir / f"{chunk_id}.vad_input.wav"
+    convert_wav_for_vad(source_wav, vad_wav, target_sr=vad_sr, target_channels=vad_ch)
+
+    # 2) run JaVAD (timestamps)
+    print(f"[vad] {vad_wav.name}")
+    intervals = run_javad_vad(vad_wav, jcfg)
+
+    # 3) clip audio segments (optional)
+    if upload_audio_clips and intervals:
+        print(f"[clip] segments={len(intervals)}")
+        clip_paths = clip_segments_to_wavs(
+            vad_wav,
+            intervals,
+            clips_dir=clips_dir,
+            chunk_id=chunk_id,
+            max_clip_s=max_clip_s,
+            min_clip_s=min_clip_s,
+        )
+
+    # 4) write JSON (canonical output)
+    out_json = cfg.vad.results_dir / f"{chunk_id}.vad.json"
+
+    model_info = {
+        "name": "javad",
+        "model_name": jcfg.model_name,
+        "checkpoint": jcfg.checkpoint_path,
+        "device": jcfg.device,
+        "postprocess": {
+            "min_speech_ms": jcfg.min_speech_ms,
+            "min_silence_ms": jcfg.min_silence_ms,
+            "threshold": cfg.vad.threshold,  # informational
+        },
+    }
+    extra_meta = {
+        "recording": {
+            "arecord_device": cfg.recorder.arecord_device,
+            "rate_hz": cfg.recorder.rate_hz,
+            "channels": cfg.recorder.channels,
+            "duration_s": cfg.recorder.duration_s,
+        },
+        "vad_input": {"sample_rate": vad_sr, "channels": vad_ch},
+        "clips": {
+            "enabled": upload_audio_clips,
+            "min_clip_s": min_clip_s,
+            "max_clip_s": max_clip_s,
+        },
+    }
+
+    write_vad_json(
+        out_json,
+        device_id=cfg.device_id,
+        chunk_id=chunk_id,
+        source_wav=source_wav,
+        vad_wav=vad_wav,
+        intervals=intervals,
+        clip_filenames=[p.name for p in clip_paths],
+        model_info=model_info,
+        extra_meta=extra_meta,
+    )
+
+    print(f"[result] {out_json.name} segments={len(intervals)} clips={len(clip_paths)}")
+
+    # 5) upload JSON (+ clips)
+    if upload_enabled and s3_settings is not None:
+        print(f"[upload] json {out_json.name}")
+        upload_json_result(out_json, settings=s3_settings)
+
+        if upload_audio_clips and clip_paths:
+            print(f"[upload] clips {chunk_id} ({len(clip_paths)})")
+            upload_wav_clips_for_chunk(clips_dir, chunk_id, settings=s3_settings)
+
+    # 6) optional cleanup
+    if delete_source_wav:
+        source_wav.unlink(missing_ok=True)
+    if delete_vad_wav and vad_wav:
+        vad_wav.unlink(missing_ok=True)
+    if delete_clips and clip_paths:
+        for p in clip_paths:
+            p.unlink(missing_ok=True)
+
+
+# ----------------------------
+# Watch mode (old upload_process.py behavior)
+# ----------------------------
+
+def watch_loop(
+    *,
+    cfg,
+    jcfg: JaVADSettings,
+    s3_settings,
+    clips_dir: Path,
+    vad_sr: int,
+    vad_ch: int,
+    upload_audio_clips: bool,
+    max_clip_s: Optional[float],
+    min_clip_s: float,
+    upload_enabled: bool,
+    delete_source_wav: bool,
+    delete_vad_wav: bool,
+    delete_clips: bool,
+) -> int:
+    """
+    Watch cfg.recorder.audio_dir for .wav files.
+    Skip newest file (still being written), process the rest.
+    Optionally delete sidecars like old script.
+    """
+    delete_sidecars = os.getenv("DELETE_SIDECARS", "1").strip().lower() in {"1", "true", "yes", "y", "on"}
+    sleep_s = float(os.getenv("WATCH_SLEEP_SECONDS", "1"))
+
+    print("[watch] mode enabled")
+    print(f"[watch] watching: {cfg.recorder.audio_dir}")
+    print(f"[watch] delete_sidecars={delete_sidecars}")
+
+    while True:
+        try:
+            wavs = sorted([p for p in cfg.recorder.audio_dir.glob("*.wav")])
+
+            # If only 0/1 wav exists, likely still recording or nothing to do
+            if len(wavs) <= 1:
+                time.sleep(sleep_s)
+                continue
+
+            # Skip the newest file (might still be open)
+            to_process = wavs[:-1]
+
+            for source_wav in to_process:
+                chunk_id = source_wav.stem
+                print(f"[watch] process {source_wav.name}")
+
+                process_one_audio(
+                    cfg=cfg,
+                    jcfg=jcfg,
+                    s3_settings=s3_settings,
+                    chunk_id=chunk_id,
+                    source_wav=source_wav,
+                    clips_dir=clips_dir,
+                    vad_sr=vad_sr,
+                    vad_ch=vad_ch,
+                    upload_audio_clips=upload_audio_clips,
+                    max_clip_s=max_clip_s,
+                    min_clip_s=min_clip_s,
+                    upload_enabled=upload_enabled,
+                    delete_source_wav=delete_source_wav,
+                    delete_vad_wav=delete_vad_wav,
+                    delete_clips=delete_clips,
+                )
+
+                if delete_sidecars:
+                    _delete_sidecars_for_source_wav(source_wav)
+
+            time.sleep(sleep_s)
+
+        except KeyboardInterrupt:
+            print("[watch] stopping (Ctrl+C)")
+            return 0
+        except subprocess.CalledProcessError as e:
+            print(f"[watch][error] subprocess failed: {e}")
+            time.sleep(1)
+        except Exception as e:
+            print(f"[watch][error] {type(e).__name__}: {e}")
+            time.sleep(1)
+
+
+# ----------------------------
 # Main
 # ----------------------------
 
@@ -134,6 +347,9 @@ def main() -> int:
     # --- VAD input format ---
     vad_sr = int(os.getenv("VAD_SAMPLE_RATE", "16000"))
     vad_ch = int(os.getenv("VAD_CHANNELS", "1"))
+
+    # --- Mode (record/watch) ---
+    mode = os.getenv("PIPELINE_MODE", "record").strip().lower()
 
     # --- Clipping options ---
     upload_audio_clips = os.getenv("UPLOAD_AUDIO_CLIPS", "1").strip().lower() in {"1", "true", "yes", "y", "on"}
@@ -172,6 +388,7 @@ def main() -> int:
     )
 
     print("[pipeline] starting")
+    print(f"[pipeline] mode={mode}")
     print(f"[pipeline] device_id={cfg.device_id}")
     print(f"[pipeline] audio_dir={cfg.recorder.audio_dir}")
     print(f"[pipeline] results_dir={cfg.vad.results_dir}")
@@ -180,97 +397,53 @@ def main() -> int:
     print(f"[pipeline] javad model={jcfg.model_name} device={jcfg.device}")
     print(f"[pipeline] vad input target: {vad_sr} Hz, ch={vad_ch}")
 
+    if mode == "watch":
+        return watch_loop(
+            cfg=cfg,
+            jcfg=jcfg,
+            s3_settings=s3_settings,
+            clips_dir=clips_dir,
+            vad_sr=vad_sr,
+            vad_ch=vad_ch,
+            upload_audio_clips=upload_audio_clips,
+            max_clip_s=max_clip_s,
+            min_clip_s=min_clip_s,
+            upload_enabled=upload_enabled,
+            delete_source_wav=delete_source_wav,
+            delete_vad_wav=delete_vad_wav,
+            delete_clips=delete_clips,
+        )
+
+    # ----------------------------
+    # Record mode (current behavior)
+    # ----------------------------
     while True:
         chunk_id = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
         source_wav: Optional[Path] = None
-        vad_wav: Optional[Path] = None
-        out_json: Optional[Path] = None
-        clip_paths: List[Path] = []
-
         try:
             # 1) record
             print(f"[record] {chunk_id}")
             source_wav = record_wav_chunk(rec, filename=f"{chunk_id}.wav")
 
-            # 2) convert to JaVAD-friendly audio
-            vad_wav = cfg.recorder.audio_dir / f"{chunk_id}.vad_input.wav"
-            convert_wav_for_vad(source_wav, vad_wav, target_sr=vad_sr, target_channels=vad_ch)
-
-            # 3) run JaVAD (timestamps)
-            print(f"[vad] {vad_wav.name}")
-            intervals = run_javad_vad(vad_wav, jcfg)
-
-            # 4) clip audio segments (optional)
-            if upload_audio_clips and intervals:
-                print(f"[clip] segments={len(intervals)}")
-                clip_paths = clip_segments_to_wavs(
-                    vad_wav,
-                    intervals,
-                    clips_dir=clips_dir,
-                    chunk_id=chunk_id,
-                    max_clip_s=max_clip_s,
-                    min_clip_s=min_clip_s,
-                )
-
-            # 5) write JSON (canonical output)
-            out_json = cfg.vad.results_dir / f"{chunk_id}.vad.json"
-            model_info = {
-                "name": "javad",
-                "model_name": jcfg.model_name,
-                "checkpoint": jcfg.checkpoint_path,
-                "device": jcfg.device,
-                "postprocess": {
-                    "min_speech_ms": jcfg.min_speech_ms,
-                    "min_silence_ms": jcfg.min_silence_ms,
-                    "threshold": cfg.vad.threshold,  # kept for your records, even if JaVAD basic API doesn't use it
-                },
-            }
-            extra_meta = {
-                "recording": {
-                    "arecord_device": cfg.recorder.arecord_device,
-                    "rate_hz": cfg.recorder.rate_hz,
-                    "channels": cfg.recorder.channels,
-                    "duration_s": cfg.recorder.duration_s,
-                },
-                "vad_input": {"sample_rate": vad_sr, "channels": vad_ch},
-                "clips": {
-                    "enabled": upload_audio_clips,
-                    "min_clip_s": min_clip_s,
-                    "max_clip_s": max_clip_s,
-                },
-            }
-
-            write_vad_json(
-                out_json,
-                device_id=cfg.device_id,
+            # 2+) process (convert -> vad -> clips -> json -> upload -> cleanup)
+            process_one_audio(
+                cfg=cfg,
+                jcfg=jcfg,
+                s3_settings=s3_settings,
                 chunk_id=chunk_id,
                 source_wav=source_wav,
-                vad_wav=vad_wav,
-                intervals=intervals,
-                clip_filenames=[p.name for p in clip_paths],
-                model_info=model_info,
-                extra_meta=extra_meta,
+                clips_dir=clips_dir,
+                vad_sr=vad_sr,
+                vad_ch=vad_ch,
+                upload_audio_clips=upload_audio_clips,
+                max_clip_s=max_clip_s,
+                min_clip_s=min_clip_s,
+                upload_enabled=upload_enabled,
+                delete_source_wav=delete_source_wav,
+                delete_vad_wav=delete_vad_wav,
+                delete_clips=delete_clips,
             )
-            print(f"[result] {out_json.name} segments={len(intervals)} clips={len(clip_paths)}")
-
-            # 6) upload JSON (+ clips if enabled)
-            if upload_enabled and s3_settings is not None:
-                print(f"[upload] json {out_json.name}")
-                upload_json_result(out_json, settings=s3_settings)
-
-                if upload_audio_clips and clip_paths:
-                    print(f"[upload] clips {chunk_id} ({len(clip_paths)})")
-                    upload_wav_clips_for_chunk(clips_dir, chunk_id, settings=s3_settings)
-
-            # 7) optional cleanup
-            if delete_source_wav and source_wav:
-                source_wav.unlink(missing_ok=True)
-            if delete_vad_wav and vad_wav:
-                vad_wav.unlink(missing_ok=True)
-            if delete_clips and clip_paths:
-                for p in clip_paths:
-                    p.unlink(missing_ok=True)
 
         except KeyboardInterrupt:
             print("[pipeline] stopping (Ctrl+C)")
@@ -280,7 +453,6 @@ def main() -> int:
         except Exception as e:
             print(f"[error] {type(e).__name__}: {e}")
 
-        # avoid tight looping on repeated errors
         time.sleep(1)
 
 
