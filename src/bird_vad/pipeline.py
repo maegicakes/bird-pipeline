@@ -237,14 +237,23 @@ def process_one_audio(
             print(f"[upload] clips {chunk_id} ({len(clip_paths)})")
             upload_wav_clips_for_chunk(clips_dir, chunk_id, settings=s3_settings)
 
-    # 6) optional cleanup
+        # 6) optional cleanup
     if delete_source_wav:
         source_wav.unlink(missing_ok=True)
+
     if delete_vad_wav and vad_wav:
         vad_wav.unlink(missing_ok=True)
+
     if delete_clips and clip_paths:
         for p in clip_paths:
             p.unlink(missing_ok=True)
+
+    delete_results_json = os.getenv("DELETE_RESULTS_JSON", "0").strip().lower() in {
+        "1", "true", "yes", "y", "on"
+    }
+    if delete_results_json and out_json:
+        out_json.unlink(missing_ok=True)
+
 
 
 # ----------------------------
