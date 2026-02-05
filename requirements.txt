@@ -13,5 +13,6 @@ boto3
 requests
 python-dotenv
 pyyaml
+redis>=5.0.0
 
 # javad @ git+https://github.com/mohrsalt/javad.git
