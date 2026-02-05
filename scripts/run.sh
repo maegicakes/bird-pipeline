@@ -15,7 +15,8 @@ source venv/bin/activate
 # Load environment variables (if .env exists)
 if [ -f ".env" ]; then
   set -a
-  source .env
+  [ -f .env ] && source .env
+  #source .env
   set +a
 fi
 
