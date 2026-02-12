@@ -227,6 +227,7 @@ def upload_file(
             
             # Enqueue to Redis if settings provided and file is audio
             if redis_settings and device_id:
+                print("[redis] uploading to redis")
                 try:
                     rds = make_redis_client(redis_settings)
                     enqueue_audio_file(
