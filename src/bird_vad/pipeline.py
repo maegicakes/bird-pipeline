@@ -1,5 +1,3 @@
-# src/bird_vad/pipeline.py
-
 from __future__ import annotations
 
 import os
@@ -19,6 +17,7 @@ from bird_vad.vad_javad import JaVADSettings, run_javad_vad
 from bird_vad.formats import write_vad_json
 from bird_vad.uploader import (
     load_s3_settings_from_env,
+    load_redis_settings_from_env,
     upload_json_result,
     upload_wav_clips_for_chunk,
 )
@@ -118,7 +117,7 @@ def clip_segments_to_wavs(
 
 
 # ----------------------------
-# “Old pipeline” style cleanup
+# "Old pipeline" style cleanup
 # ----------------------------
 
 def _delete_sidecars_for_source_wav(source_wav: Path) -> None:
@@ -143,6 +142,7 @@ def process_one_audio(
     cfg,
     jcfg: JaVADSettings,
     s3_settings,
+    redis_settings,
     chunk_id: str,
     source_wav: Path,
     clips_dir: Path,
@@ -231,13 +231,23 @@ def process_one_audio(
     # 5) upload JSON (+ clips)
     if upload_enabled and s3_settings is not None:
         print(f"[upload] json {out_json.name}")
-        upload_json_result(out_json, settings=s3_settings)
+        upload_json_result(
+            out_json,
+            settings=s3_settings,
+            device_id=cfg.device_id,
+        )
 
         if upload_audio_clips and clip_paths:
             print(f"[upload] clips {chunk_id} ({len(clip_paths)})")
-            upload_wav_clips_for_chunk(clips_dir, chunk_id, settings=s3_settings)
+            upload_wav_clips_for_chunk(
+                clips_dir,
+                chunk_id,
+                settings=s3_settings,
+                redis_settings=redis_settings,
+                device_id=cfg.device_id,
+            )
 
-        # 6) optional cleanup
+    # 6) optional cleanup
     if delete_source_wav:
         source_wav.unlink(missing_ok=True)
 
@@ -265,6 +275,7 @@ def watch_loop(
     cfg,
     jcfg: JaVADSettings,
     s3_settings,
+    redis_settings,
     clips_dir: Path,
     vad_sr: int,
     vad_ch: int,
@@ -308,6 +319,7 @@ def watch_loop(
                     cfg=cfg,
                     jcfg=jcfg,
                     s3_settings=s3_settings,
+                    redis_settings=redis_settings,
                     chunk_id=chunk_id,
                     source_wav=source_wav,
                     clips_dir=clips_dir,
@@ -377,6 +389,15 @@ def main() -> int:
     # --- Upload ---
     upload_enabled = bool(cfg.upload.enabled)
     s3_settings = load_s3_settings_from_env() if upload_enabled else None
+    
+    # --- Redis (optional) ---
+    redis_settings = None
+    try:
+        redis_settings = load_redis_settings_from_env()
+        if redis_settings:
+            print(f"[redis] enabled queue={redis_settings.queue}")
+    except Exception as e:
+        print(f"[redis] disabled: {e}")
 
     # --- Recorder settings (bird-files style) ---
     rec = RecorderSettings(
@@ -411,6 +432,7 @@ def main() -> int:
             cfg=cfg,
             jcfg=jcfg,
             s3_settings=s3_settings,
+            redis_settings=redis_settings,
             clips_dir=clips_dir,
             vad_sr=vad_sr,
             vad_ch=vad_ch,
@@ -440,6 +462,7 @@ def main() -> int:
                 cfg=cfg,
                 jcfg=jcfg,
                 s3_settings=s3_settings,
+                redis_settings=redis_settings,
                 chunk_id=chunk_id,
                 source_wav=source_wav,
                 clips_dir=clips_dir,
