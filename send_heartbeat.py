@@ -21,7 +21,7 @@ if not DATABASE_URL:
 DEVICE_ID = os.environ.get("DEVICE_ID") or socket.gethostname()
 
 INSERT_SQL = """
-INSERT INTO pi_heartbeats (time, device_id, voltage, current, power, soc_pct, cpu_temp)
+INSERT INTO pi_heartbeats (time, station_id, voltage, current, power, soc_pct, cpu_temp)
 VALUES (%s, %s, %s, %s, %s, %s, %s)
 """
 
