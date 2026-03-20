@@ -264,7 +264,6 @@ def process_one_audio(
                 clips_dir,
                 chunk_id,
                 settings=s3_settings,
-                device_id=cfg.device_id,
             )
 
     # 6) optional cleanup
