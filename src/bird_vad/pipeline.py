@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import csv
 import subprocess
 import time
 import glob
@@ -168,8 +169,31 @@ def process_one_audio(
     convert_wav_for_vad(source_wav, vad_wav, target_sr=vad_sr, target_channels=vad_ch)
 
     # 2) run JaVAD (timestamps)
+    # print(f"[vad] {vad_wav.name}")
+    # intervals = run_javad_vad(vad_wav, jcfg)
+    # 2) run JaVAD (timestamps)
     print(f"[vad] {vad_wav.name}")
+
+    log_path = Path("/home/raspi/inference_times_javad.csv")
+    file_exists = log_path.exists()
+
+    start_time = time.time()
     intervals = run_javad_vad(vad_wav, jcfg)
+    end_time = time.time()
+
+    inference_seconds = end_time - start_time
+
+    with open(log_path, "a", newline="") as f:
+        writer = csv.writer(f)
+        if not file_exists:
+            writer.writerow(["timestamp", "chunk_id", "inference_seconds"])
+        writer.writerow([
+            time.strftime("%Y-%m-%d %H:%M:%S"),
+            chunk_id,
+            inference_seconds,
+        ])
+
+    print(f"[timing] inference_seconds={inference_seconds:.4f}")
 
     # 3) clip audio segments (optional)
     if upload_audio_clips and intervals:
