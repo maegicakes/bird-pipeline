@@ -32,8 +32,10 @@ echo "[run.sh] Checkpoint: ${JAVAD_CHECKPOINT}"
 # Run the pipeline
 # exec python -m bird_vad.pipeline
 
+export PYTHONPATH="$REPO_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
+
 python send_heartbeat.py &
 HEARTBEAT_PID=$!
 trap 'kill $HEARTBEAT_PID 2>/dev/null' EXIT
 
-exec python -m bird_vad.pipeline
+python -m bird_vad.pipeline
