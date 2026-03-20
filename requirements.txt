@@ -14,10 +14,5 @@ requests
 python-dotenv
 pyyaml
 redis>=5.0.0
-psycopg[binary]>=3.2,<3.4
-adafruit-blinka
-adafruit-circuitpython-busdevice
-adafruit-circuitpython-ina260
-upstash-redis
 
 # javad @ git+https://github.com/mohrsalt/javad.git

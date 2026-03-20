@@ -34,5 +34,4 @@ echo "[run.sh] Checkpoint: ${JAVAD_CHECKPOINT}"
 
 # exec PYTHONPATH=src:../javad/src python -m bird_vad.pipeline
 
-exec env PYTHONPATH="src:../javad/src" python -m bird_vad.pipeline python -m send_heartbeat.py
-
+exec env PYTHONPATH="src:../javad/src" python -m bird_vad.pipeline
