@@ -26,7 +26,7 @@ VALUES (%s, %s, %s, %s, %s, %s, %s)
 """
 
 # 25°C resting-voltage table for ~12V SLA (rough guide)
-v_soc_table = [
+V_SOC_TABLE = [
     (13.10, 100),
     (12.95,  90),
     (12.85,  80),
