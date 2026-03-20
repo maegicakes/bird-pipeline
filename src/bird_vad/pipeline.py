@@ -256,7 +256,6 @@ def process_one_audio(
         upload_json_result(
             out_json,
             settings=s3_settings,
-            device_id=cfg.device_id,
         )
 
         if upload_audio_clips and clip_paths:
