@@ -26,17 +26,19 @@ VALUES (%s, %s, %s, %s, %s, %s, %s)
 """
 
 # 25°C resting-voltage table for ~12V SLA (rough guide)
-V_SOC_TABLE = [
-    (12.90, 100),
-    (12.70, 90),
-    (12.50, 75),
-    (12.40, 60),
-    (12.20, 50),
-    (12.00, 25),
-    (11.80, 10),
-    (11.50, 0),
+v_soc_table = [
+    (13.10, 100),
+    (12.95,  90),
+    (12.85,  80),
+    (12.75,  70),
+    (12.70,  60),
+    (12.50,  50),
+    (12.30,  40),
+    (12.10,  30),
+    (11.95,  20),
+    (11.80,  10),
+    (11.60,   0),
 ]
-
 
 def open_conn():
     return psycopg.connect(DATABASE_URL, autocommit=True, row_factory=tuple_row)
