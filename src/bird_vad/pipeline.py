@@ -432,7 +432,7 @@ def main() -> int:
     print(f"[pipeline] results_dir={cfg.vad.results_dir}")
     print(f"[pipeline] clips_dir={clips_dir}")
     print(f"[pipeline] upload_enabled={upload_enabled} upload_audio_clips={upload_audio_clips}")
-    print(f"[pipeline] javad model={jcfg.model_name} device={jcfg.device}")
+    print(f"[pipeline] model={jcfg.model_name} device={jcfg.device}")
     print(f"[pipeline] vad input target: {vad_sr} Hz, ch={vad_ch}")
 
     if mode == "watch":
